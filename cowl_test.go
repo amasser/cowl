@@ -2,7 +2,9 @@ package cowl_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -87,6 +89,24 @@ func TestWriter(t *testing.T) {
 	got, err := tut.Write([]byte("foo"))
 	ok(t, err)
 	equals(t, got, 3)
+}
+
+func TestRejectedLogsError(t *testing.T) {
+	api := &dummyCowlAPI{pleo: &cloudwatchlogs.PutLogEventsOutput{
+		NextSequenceToken: aws.String("1"),
+		RejectedLogEventsInfo: &cloudwatchlogs.RejectedLogEventsInfo{
+			ExpiredLogEventEndIndex: aws.Int64(1)},
+	}}
+
+	tut := cowl.MustNewWriter(api, "g", "s", ShortFlushPeriod)
+	b, err := tut.Write([]byte("1\n2\n3\n"))
+	ok(t, err)
+	equals(t, b, 6)
+	time.Sleep(10 * time.Millisecond)
+	equals(t, len(api.plei), 3)
+	equals(t, *api.plei[0].Message, "1")
+	equals(t, *api.plei[1].Message, "2")
+	equals(t, *api.plei[2].Message, "3")
 }
 
 func TestWriterWritesFlushPeriod(t *testing.T) {
@@ -197,18 +217,58 @@ func TestWriterCreatesStream(t *testing.T) {
 
 }
 
+func TestClosedWriterIOPipeError(t *testing.T) {
+	api := &dummyCowlAPI{pleo: &cloudwatchlogs.PutLogEventsOutput{
+		NextSequenceToken:     aws.String("1"),
+		RejectedLogEventsInfo: nil,
+	}}
+
+	tut := cowl.MustNewWriter(api, "g", "s")
+	equals(t, tut.LogGroup(), "g")
+	equals(t, tut.LogStream(), "s")
+	tut.Close()
+	n, err := tut.Write([]byte("error"))
+	equals(t, n, 0)
+	equals(t, err, io.ErrClosedPipe)
+
+}
+
+func TestMustNewWriterSucceedsExistingStream(t *testing.T) {
+	var r interface{}
+	defer func() {
+		if r = recover(); r != nil {
+			t.Errorf("MustNewWriter paniced but shouldn't have on failed stream creation")
+		}
+	}()
+
+	api := &dummyCowlAPI{cerr: awserr.New(cloudwatchlogs.ErrCodeResourceAlreadyExistsException, "The specified resource already exists", nil)}
+	_ = cowl.MustNewWriter(api, "g", "s")
+}
+
 func TestMustNewWriterPanicsFailedStream(t *testing.T) {
 	var r interface{}
 	defer func() {
 		if r = recover(); r == nil {
 			t.Errorf("MustNewWriter failed to panic on failed stream creation")
 		}
-		equals(t, r.(error).Error(), "ResourceAlreadyExistsException: The specified resource already exists")
+		equals(t, r.(error).Error(), "InvalidOperationException: fake message")
 	}()
 
-	api := &dummyCowlAPI{cerr: awserr.New(cloudwatchlogs.ErrCodeResourceAlreadyExistsException, "The specified resource already exists", nil)}
+	api := &dummyCowlAPI{cerr: awserr.New(cloudwatchlogs.ErrCodeInvalidOperationException, "fake message", nil)}
 	_ = cowl.MustNewWriter(api, "g", "s")
+}
 
+func TestMustNewWriterPanicsOther(t *testing.T) {
+	var r interface{}
+	defer func() {
+		if r = recover(); r == nil {
+			t.Errorf("MustNewWriter failed to panic on failed stream creation")
+		}
+		equals(t, r.(error).Error(), "boom")
+	}()
+
+	api := &dummyCowlAPI{cerr: errors.New("boom")}
+	_ = cowl.MustNewWriter(api, "g", "s")
 }
 
 type dummyCowlAPI struct {

@@ -66,13 +66,20 @@ func MustNewWriterWithContext(ctx context.Context, api ClientAPI, group, stream 
 		group:   aws.String(group),
 		stream:  aws.String(stream),
 	}
+
 	_, err := api.CreateLogStream(
 		&cloudwatchlogs.CreateLogStreamInput{
 			LogGroupName:  w.group,
 			LogStreamName: w.stream},
 	)
 	if err != nil {
-		panic(err)
+		if aerr, ok := err.(awserr.Error); ok {
+			if aerr.Code() != cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
+				panic(err)
+			}
+		} else {
+			panic(err)
+		}
 	}
 
 	for _, opt := range options {
