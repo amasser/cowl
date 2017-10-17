@@ -66,13 +66,20 @@ func MustNewWriterWithContext(ctx context.Context, api ClientAPI, group, stream 
 		group:   aws.String(group),
 		stream:  aws.String(stream),
 	}
+
 	_, err := api.CreateLogStream(
 		&cloudwatchlogs.CreateLogStreamInput{
 			LogGroupName:  w.group,
 			LogStreamName: w.stream},
 	)
 	if err != nil {
-		panic(err)
+		if aerr, ok := err.(awserr.Error); ok {
+			if aerr.Code() != cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
+				panic(err)
+			}
+		} else {
+			panic(err)
+		}
 	}
 
 	for _, opt := range options {
@@ -123,6 +130,7 @@ type Writer struct {
 	ctx    context.Context
 	err    error
 
+	mu                   sync.RWMutex
 	closed               bool
 	group, stream, token *string
 	events               chan *cloudwatchlogs.InputLogEvent
@@ -133,12 +141,21 @@ type Writer struct {
 // and exit.
 func (w *Writer) Close() {
 	close(w.events)
+	w.mu.Lock()
 	w.closed = true
+	w.mu.Unlock()
+}
+
+// Closed returns if the writer has already been closed.
+func (w *Writer) Closed() bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.closed
 }
 
 // Write implements io.Writer.
 func (w *Writer) Write(b []byte) (int, error) {
-	if w.closed {
+	if w.Closed() {
 		return 0, io.ErrClosedPipe
 	}
 	if w.err != nil {
@@ -178,12 +195,12 @@ func (w *Writer) run() {
 					w.flush()
 				}
 			} else {
-				w.closed = true
+				// w.closed = true
 				w.flush()
 				return
 			}
 		case <-w.ctx.Done():
-			if !w.closed {
+			if !w.Closed() {
 				w.Close()
 			}
 		case <-time.After(w.FlushPeriod):
