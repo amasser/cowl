@@ -32,6 +32,7 @@ const (
 type ClientAPI interface {
 	PutLogEvents(*cloudwatchlogs.PutLogEventsInput) (*cloudwatchlogs.PutLogEventsOutput, error)
 	CreateLogStream(*cloudwatchlogs.CreateLogStreamInput) (*cloudwatchlogs.CreateLogStreamOutput, error)
+	DescribeLogStreams(*cloudwatchlogs.DescribeLogStreamsInput) (*cloudwatchlogs.DescribeLogStreamsOutput, error)
 }
 
 // MustNewWriter returns a new Writer for use or panics.
@@ -74,7 +75,19 @@ func MustNewWriterWithContext(ctx context.Context, api ClientAPI, group, stream 
 	)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Code() != cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
+			if aerr.Code() == cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
+				// It already exists, let's get the next token.
+				resp, err := w.API.DescribeLogStreams(
+					&cloudwatchlogs.DescribeLogStreamsInput{
+						LogGroupName:        w.group,
+						LogStreamNamePrefix: w.stream,
+						Limit:               aws.Int64(1), // There should only be one.
+					})
+				if err != nil {
+					panic(err)
+				}
+				w.token = resp.NextToken
+			} else {
 				panic(err)
 			}
 		} else {

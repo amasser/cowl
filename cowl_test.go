@@ -241,7 +241,29 @@ func TestMustNewWriterSucceedsExistingStream(t *testing.T) {
 		}
 	}()
 
-	api := &dummyCowlAPI{cerr: awserr.New(cloudwatchlogs.ErrCodeResourceAlreadyExistsException, "The specified resource already exists", nil)}
+	api := &dummyCowlAPI{
+		cerr: awserr.New(cloudwatchlogs.ErrCodeResourceAlreadyExistsException, "The specified resource already exists", nil),
+		dlso: &cloudwatchlogs.DescribeLogStreamsOutput{
+			NextToken: aws.String("token"),
+		}}
+	_ = cowl.MustNewWriter(api, "g", "s")
+}
+
+func TestMustNewWriterPanicsFailedToGetExistingStreamToken(t *testing.T) {
+	var r interface{}
+	defer func() {
+		if r = recover(); r == nil {
+			t.Errorf("MustNewWriter failed to panic when unable to get token for existing stream")
+		}
+		equals(t, r.(error).Error(), "boom")
+	}()
+
+	api := &dummyCowlAPI{
+		cerr: awserr.New(cloudwatchlogs.ErrCodeResourceAlreadyExistsException, "The specified resource already exists", nil),
+		derr: errors.New("boom"),
+		dlso: &cloudwatchlogs.DescribeLogStreamsOutput{
+			NextToken: aws.String("token"),
+		}}
 	_ = cowl.MustNewWriter(api, "g", "s")
 }
 
@@ -276,6 +298,8 @@ type dummyCowlAPI struct {
 	clsi *cloudwatchlogs.CreateLogStreamInput
 	plei []*cloudwatchlogs.InputLogEvent
 	pleo *cloudwatchlogs.PutLogEventsOutput
+	derr error
+	dlso *cloudwatchlogs.DescribeLogStreamsOutput
 }
 
 func (d *dummyCowlAPI) PutLogEvents(in *cloudwatchlogs.PutLogEventsInput) (*cloudwatchlogs.PutLogEventsOutput, error) {
@@ -289,6 +313,14 @@ func (d *dummyCowlAPI) CreateLogStream(clsi *cloudwatchlogs.CreateLogStreamInput
 	}
 	d.clsi = clsi
 	return &cloudwatchlogs.CreateLogStreamOutput{}, nil
+}
+
+func (d *dummyCowlAPI) DescribeLogStreams(input *cloudwatchlogs.DescribeLogStreamsInput) (*cloudwatchlogs.DescribeLogStreamsOutput, error) {
+	if d.derr != nil {
+		return nil, d.derr
+	}
+
+	return d.dlso, nil
 }
 
 // ok fails the test if an err is not nil.
