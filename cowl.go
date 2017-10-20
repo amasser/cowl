@@ -9,6 +9,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -86,7 +87,10 @@ func MustNewWriterWithContext(ctx context.Context, api ClientAPI, group, stream 
 				if err != nil {
 					panic(err)
 				}
-				w.token = resp.NextToken
+				if len(resp.LogStreams) != 1 {
+					panic(fmt.Sprintf("got %d log streams with prefix %s expected 1", len(resp.LogStreams), *w.stream))
+				}
+				w.token = resp.LogStreams[0].UploadSequenceToken
 			} else {
 				panic(err)
 			}
@@ -252,4 +256,12 @@ func (w *Writer) LogGroup() string {
 // LogStream returns the  log stream this writer writes to.
 func (w *Writer) LogStream() string {
 	return *w.stream
+}
+
+// Token returns the value of the next sequence token for CWL.
+func (w *Writer) Token() string {
+	if w.token != nil {
+		return *w.token
+	}
+	return ""
 }
