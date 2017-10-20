@@ -244,9 +244,14 @@ func TestMustNewWriterSucceedsExistingStream(t *testing.T) {
 	api := &dummyCowlAPI{
 		cerr: awserr.New(cloudwatchlogs.ErrCodeResourceAlreadyExistsException, "The specified resource already exists", nil),
 		dlso: &cloudwatchlogs.DescribeLogStreamsOutput{
-			NextToken: aws.String("token"),
+			LogStreams: []*cloudwatchlogs.LogStream{
+				&cloudwatchlogs.LogStream{
+					UploadSequenceToken: aws.String("token"),
+				},
+			},
 		}}
-	_ = cowl.MustNewWriter(api, "g", "s")
+	tut := cowl.MustNewWriter(api, "g", "s")
+	equals(t, tut.Token(), "token")
 }
 
 func TestMustNewWriterPanicsFailedToGetExistingStreamToken(t *testing.T) {
