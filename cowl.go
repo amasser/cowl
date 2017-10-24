@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"sync"
 	"time"
 
@@ -242,10 +243,33 @@ func (w *Writer) flush() {
 	}
 
 	if resp.RejectedLogEventsInfo != nil {
-		w.err = awserr.New("RejectedLogEventsError", resp.RejectedLogEventsInfo.String(), nil)
+		w.resetToken()
+		log.Printf("%v - reset token to %q", awserr.New("RejectedLogEventsError", resp.RejectedLogEventsInfo.String(), nil), *resp.NextSequenceToken)
+
 	}
 
 	w.token = resp.NextSequenceToken
+}
+
+func (w *Writer) resetToken() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	resp, err := w.API.DescribeLogStreams(
+		&cloudwatchlogs.DescribeLogStreamsInput{
+			LogGroupName:        w.group,
+			LogStreamNamePrefix: w.stream,
+			Limit:               aws.Int64(1), // There should only be one.
+		})
+	if err != nil {
+		w.err = err
+		return
+	}
+	if len(resp.LogStreams) != 1 {
+		w.err = fmt.Errorf("got %d log streams with prefix %s expected 1", len(resp.LogStreams), *w.stream)
+		return
+	}
+	w.token = resp.LogStreams[0].UploadSequenceToken
 }
 
 // LogGroup returns the log group this writer writes to.
