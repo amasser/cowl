@@ -96,7 +96,15 @@ func TestRejectedLogsError(t *testing.T) {
 		NextSequenceToken: aws.String("1"),
 		RejectedLogEventsInfo: &cloudwatchlogs.RejectedLogEventsInfo{
 			ExpiredLogEventEndIndex: aws.Int64(1)},
-	}}
+	},
+		dlso: &cloudwatchlogs.DescribeLogStreamsOutput{
+			LogStreams: []*cloudwatchlogs.LogStream{
+				&cloudwatchlogs.LogStream{
+					UploadSequenceToken: aws.String("token"),
+				},
+			},
+		},
+	}
 
 	tut := cowl.MustNewWriter(api, "g", "s", ShortFlushPeriod)
 	b, err := tut.Write([]byte("1\n2\n3\n"))
