@@ -1,13 +1,16 @@
 package cowl_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,6 +109,8 @@ func TestRejectedLogsError(t *testing.T) {
 		},
 	}
 
+	buf := &bytes.Buffer{}
+	log.SetOutput(buf)
 	tut := cowl.MustNewWriter(api, "g", "s", ShortFlushPeriod)
 	b, err := tut.Write([]byte("1\n2\n3\n"))
 	ok(t, err)
@@ -115,6 +120,7 @@ func TestRejectedLogsError(t *testing.T) {
 	equals(t, *api.plei[0].Message, "1")
 	equals(t, *api.plei[1].Message, "2")
 	equals(t, *api.plei[2].Message, "3")
+	assert(t, strings.Contains(buf.String(), "ExpiredLogEventEndIndex: 1\n} - reset token to \"1\""), "missing expected log output")
 }
 
 func TestWriterWritesFlushPeriod(t *testing.T) {
@@ -355,10 +361,10 @@ func equals(tb testing.TB, got, want interface{}) {
 }
 
 // assert fails the test if the condition is false.
-// func assert(tb testing.TB, condition bool, msg string, v ...interface{}) {
-// 	if !condition {
-// 		_, file, line, _ := runtime.Caller(1)
-// 		fmt.Printf("\033[31m%s:%d: "+msg+"\033[39m\n\n", append([]interface{}{filepath.Base(file), line}, v...)...)
-// 		tb.FailNow()
-// 	}
-// }
+func assert(tb testing.TB, condition bool, msg string, v ...interface{}) {
+	if !condition {
+		_, file, line, _ := runtime.Caller(1)
+		fmt.Printf("\033[31m%s:%d: "+msg+"\033[39m\n\n", append([]interface{}{filepath.Base(file), line}, v...)...)
+		tb.FailNow()
+	}
+}
